@@ -1,2 +1,8 @@
-# daily-finance-news
-每日财经资讯自动推送
+# 📰 每日财经资讯 · Daily Finance Brief
+> 自动更新的每日财经新闻网页，聚焦国际贸易、跨境电商、股市、债券、基金。
+
+## 🚀 零基础部署指南
+详见本文件下方完整步骤。
+
+## 📋 数据来源
+所有新闻均标注原始链接，可溯源。详见 [data/sources.md](data/sources.md)
