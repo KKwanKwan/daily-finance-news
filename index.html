@@ -73,5 +73,113 @@
 </div>
 
 <script src="js/main.js"></script>
+  <!-- ===== 内联接管脚本：自带渲染+诊断，不依赖任何外部 js ===== -->
+<script>
+(function () {
+  // 第 0 步：先挂状态框。哪怕后面全崩，这个框也在，证明“内联脚本能跑”。
+  var box = document.createElement('div');
+  box.style.cssText = 'position:relative;z-index:99999;background:#fffbe6;border:2px solid #d90;color:#222;padding:12px 14px;margin:10px;font:12px/1.7 monospace;white-space:pre-wrap;word-break:break-all;border-radius:8px;';
+  box.textContent = '⏳ 内联脚本已执行，正在接管页面…';
+  document.body.insertBefore(box, document.body.firstChild);
+  function log(t) { box.textContent = t; }
+
+  try {
+    // 第 1 步：把每个格子里写死的“加载中…”先抹掉，证明我们接管了
+    var IDS = ['politics-news','trade-news','ecommerce-news','stock-news','bond-news','fund-news','knowledge-content'];
+    for (var i = 0; i < IDS.length; i++) {
+      var el = document.getElementById(IDS[i]);
+      if (el) el.innerHTML = '<div style="padding:14px;color:#999;font-size:13px;">内联脚本接管中…</div>';
+    }
+
+    // 第 2 步：查“网页实际加载了哪些 JS 文件”——这是破案关键
+    var scripts = document.scripts, srcList = [];
+    for (var s = 0; s < scripts.length; s++) {
+      srcList.push(scripts[s].src ? scripts[s].src : '(内联脚本)');
+    }
+
+    // 第 3 步：分类归类表
+    var CAT = [
+      ['politics-news',['politics','时政','政治','要闻']],
+      ['trade-news',['trade','国际贸易','贸易','外贸']],
+      ['ecommerce-news',['ecommerce','cross','跨境','电商']],
+      ['stock-news',['stock','股','股市']],
+      ['bond-news',['bond','债','债券']],
+      ['fund-news',['fund','基金','理财']],
+      ['knowledge-content',['knowledge','知识','科普']]
+    ];
+    function val(it, ks){ for(var k=0;k<ks.length;k++){ if(it[ks[k]]!=null&&it[ks[k]]!=='') return it[ks[k]]; } return ''; }
+    function T(it){return val(it,['title','name','headline','标题']);}
+    function S(it){return val(it,['summary','desc','description','abstract','digest','content','摘要']);}
+    function U(it){return val(it,['url','link','href','source_url','sourceUrl']);}
+    function D(it){return val(it,['date','time','publish_time','publishTime','pubDate','created_at','日期','时间']);}
+    function SRC(it){return val(it,['source','from','media','来源']);}
+    function C(it){return val(it,['category','type','tag','section','cat','channel','分类','标签']);}
+    function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    function resolve(cat){
+      var c=String(cat||'').trim(); if(!c) return null;
+      if(IDS.indexOf(c+'-news')>-1) return c+'-news';
+      var low=c.toLowerCase();
+      for(var a=0;a<CAT.length;a++){ var kw=CAT[a][1];
+        for(var b=0;b<kw.length;b++){ var k=kw[b].toLowerCase();
+          if(low.indexOf(k)>-1||k.indexOf(low)>-1) return CAT[a][0]; } }
+      return null;
+    }
+    function card(it){
+      var t=T(it); if(!t) return '';
+      var html='<div style="font-size:15px;font-weight:600;margin:0 0 6px;">'+esc(t)+'</div>';
+      if(S(it)) html+='<div style="font-size:13px;color:#666;margin:0 0 8px;line-height:1.6;">'+esc(S(it))+'</div>';
+      html+='<div style="font-size:12px;color:#999;">'+esc(SRC(it))+(SRC(it)&&D(it)?' · ':'')+esc(D(it))+'</div>';
+      var u=U(it);
+      return u ? '<a href="'+esc(u)+'" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;margin:0 0 12px;text-decoration:none;color:inherit;box-shadow:0 2px 8px rgba(0,0,0,.05);">'+html+'</a>'
+               : '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;margin:0 0 12px;">'+html+'</div>';
+    }
+
+    // 第 4 步：拉数据并渲染
+    fetch('data/news-data.json', {cache:'no-store'}).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(function(json){
+      var data = Array.isArray(json)?json:(json.news||json.data||json.items||json.list||[]);
+      if(!Array.isArray(data)) data=[];
+
+      var buckets={}; for(var x=0;x<IDS.length;x++) buckets[IDS[x]]=[];
+      var cats={};
+      for(var n=0;n<data.length;n++){
+        var cv=C(data[n]); cats[String(cv)]=1;
+        var cid=resolve(cv); if(cid&&buckets[cid]) buckets[cid].push(data[n]);
+      }
+
+      var report='✅ 内联脚本运行成功！数据 '+data.length+' 条。\n\n';
+      report+='【网页实际加载的 JS 文件】(看这里有没有你改的 main.js)\n';
+      for(var p=0;p<srcList.length;p++) report+='  · '+srcList[p]+'\n';
+      report+='\n【每个格子的渲染情况】\n';
+      var total=0;
+      for(var y=0;y<IDS.length;y++){
+        var node=document.getElementById(IDS[y]);
+        var cnt=buckets[IDS[y]].length; total+=cnt;
+        if(!node){ report+='  ✖ '+IDS[y]+'  (页面里不存在这个 id)\n'; continue; }
+        node.innerHTML = cnt ? buckets[IDS[y]].map(card).join('')
+                             : '<div style="padding:14px;color:#999;font-size:13px;">暂无相关资讯</div>';
+        report+='  '+(cnt?'✔':'·')+' '+IDS[y]+'  ->  '+cnt+' 条\n';
+      }
+      report+='\n【JSON 第一条字段名】\n  '+(data[0]?Object.keys(data[0]).join(', '):'(空)')+'\n';
+      report+='\n【category 全部取值】\n  '+Object.keys(cats).join(', ')+'\n';
+      report+='\n合计渲染 '+total+' 条。'+(total===0&&data.length>0?'\n⚠️ 有数据但没匹配上格子，把上面“category 全部取值”截图发我。':'');
+
+      box.style.background = total>0 ? '#f0fff4' : '#fff3f3';
+      box.style.borderColor = total>0 ? '#2a2' : '#e33';
+      log(report);
+    }).catch(function(e){
+      box.style.background='#fff3f3'; box.style.borderColor='#e33';
+      log('❌ 拉数据失败: '+e.message+'\n目标: data/news-data.json\n\n网页加载的 JS:\n'+srcList.join('\n'));
+    });
+
+  } catch (err) {
+    box.style.background='#fff3f3'; box.style.borderColor='#e33';
+    log('💥 内联脚本报错: '+err.message+'\n(请把这一行截图发我)');
+  }
+})();
+</script>
+<!-- ===== 内联接管脚本结束 ===== -->
 </body>
 </html>
