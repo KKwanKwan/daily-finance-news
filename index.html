@@ -73,57 +73,5 @@
 </div>
 
 <script src="js/main.js"></script>
-  <!-- ===== 临时诊断工具，看完截图后整段删掉 ===== -->
-<script>
-(function(){
-  var box = document.createElement('div');
-  box.style.cssText = 'position:relative;z-index:99999;background:#fff3f3;border:2px solid #e33;color:#222;padding:12px;margin:10px;font:12px/1.6 monospace;white-space:pre-wrap;word-break:break-all;border-radius:8px;';
-  box.textContent = '🔍 诊断中，请稍候 2 秒…';
-  document.body.insertBefore(box, document.body.firstChild);
-
-  // 1) 当前页面信息
-  var here = window.location.pathname;
-  var dir  = here.endsWith('/') ? here : here.replace(/[^/]*$/, '');
-  var base = document.querySelector('base') ? document.querySelector('base').href : '(无 base 标签)';
-
-  // 2) 候选路径：把“相对 / 带斜杠 / 带子目录”全试一遍
-  var raw = [
-    'data/news-data.json',
-    './data/news-data.json',
-    '/data/news-data.json',
-    dir + 'data/news-data.json',
-    'news-data.json',
-    dir + 'news-data.json'
-  ];
-  var candidates = raw.filter(function(v,i){ return raw.indexOf(v)===i; }); // 去重
-
-  // 3) 收集页面“格子”结构：所有 id + 所有“加载中…”占位符的父容器
-  var ids = [].map.call(document.querySelectorAll('[id]'), function(e){ return e.id; });
-  var loaders = [].map.call(document.querySelectorAll('*'), function(e){
-    return e.childNodes.length===1 && e.textContent.trim()==='加载中...' ? e : null;
-  }).filter(Boolean).map(function(e){
-    return {tag:e.tagName, id:e.id, cls:e.className,
-            pId:e.parentElement&&e.parentElement.id, pCls:e.parentElement&&e.parentElement.className};
-  });
-
-  // 4) 逐个 fetch，记录状态码
-  Promise.all(candidates.map(function(p){
-    return fetch(p, {cache:'no-store'})
-      .then(function(r){ return p + '  ->  HTTP ' + r.status + (r.ok?' ✅':' ❌'); })
-      .catch(function(e){ return p + '  ->  网络错误: ' + e.message; });
-  })).then(function(results){
-    var out =
-      '【页面地址】 ' + window.location.href + '\n' +
-      '【base 标签】 ' + base + '\n' +
-      '【推算子目录】 ' + dir + '\n\n' +
-      '【路径探测结果】(✅ 就是正确路径)\n' + results.join('\n') + '\n\n' +
-      '【页面里所有 id】\n' + (ids.length? ids.join(', ') : '(没有任何 id)') + '\n\n' +
-      '【“加载中…”占位符的父容器】(告诉我该往哪填内容)\n' + JSON.stringify(loaders, null, 2);
-    box.textContent = out;
-    console.log(out);
-  });
-})();
-</script>
-<!-- ===== 诊断工具结束 ===== -->
 </body>
 </html>
