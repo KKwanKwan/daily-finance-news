@@ -1,8 +1,11 @@
 /**
- * Daily Finance Brief —— 万能适配版 main.js
- * 自动挖掘任意结构的 news-data.json，按分类填入对应格子。
+ * Daily Finance Brief —— 强制溯源版 main.js
+ * 1) 万能挖掘任意结构 JSON，按分类填格子
+ * 2) 每张卡片强制显示【来源】与【原文链接】：有则展示/可点，缺则红字标出，绝不静默隐藏
+ * 3) 顶部"数据溯源完整性"统计条，缺失一目了然，倒逼数据补全（不伪造任何出处）
  * 容器: politics-news / trade-news / ecommerce-news / stock-news / bond-news / fund-news / knowledge-content
- * 数据: data/news-data.json (相对路径)
+ * 数据: data/news-data.json
+ * 每条数据建议字段: title / summary / date / category / source(必填) / url(必填)
  */
 (function () {
   'use strict';
@@ -10,7 +13,6 @@
   var DATA_URL = 'data/news-data.json';
   var IDS = ['politics-news', 'trade-news', 'ecommerce-news', 'stock-news', 'bond-news', 'fund-news', 'knowledge-content'];
 
-  // 分类关键词（同时用于 category 字段 和 JSON 里的键名，大小写/横线/下划线不敏感）
   var CAT = [
     ['politics-news',     ['politic', '时政', '政治', '要闻']],
     ['trade-news',        ['trade', 'trading', '国际贸易', '贸易', '外贸']],
@@ -21,7 +23,7 @@
     ['knowledge-content', ['knowledge', '知识', '科普', '百科']]
   ];
 
-  var allNews = [];   // [{it, cid}]
+  var allNews = [];
   var rawText = '';
   var keyword = '';
 
@@ -32,15 +34,27 @@
     s.id = 'dfb-style';
     s.textContent =
       '.dfb-card{display:block;background:var(--card-bg,#fff);border:1px solid var(--border,#eef0f3);' +
-      'border-radius:12px;padding:14px 16px;margin:0 0 12px;text-decoration:none;color:inherit;' +
-      'box-shadow:0 2px 8px rgba(0,0,0,.04);transition:transform .2s,box-shadow .2s;cursor:pointer;}' +
-      '.dfb-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,.08);border-color:var(--primary,#2563eb);}' +
+      'border-radius:12px;padding:14px 16px;margin:0 0 12px;color:inherit;' +
+      'box-shadow:0 2px 8px rgba(0,0,0,.04);transition:transform .2s,box-shadow .2s;}' +
+      '.dfb-card:hover{box-shadow:0 8px 20px rgba(0,0,0,.08);border-color:var(--primary,#2563eb);}' +
       '.dfb-title{font-size:15px;font-weight:600;line-height:1.5;margin:0 0 6px;color:var(--text,#1a1a2e);}' +
-      '.dfb-summary{font-size:13px;line-height:1.6;color:var(--muted,#64748b);margin:0 0 10px;' +
+      '.dfb-title-link{display:block;font-size:15px;font-weight:600;line-height:1.5;margin:0 0 6px;color:var(--text,#1a1a2e);text-decoration:none;}' +
+      '.dfb-title-link:hover{color:var(--primary,#2563eb);text-decoration:underline;}' +
+      '.dfb-summary{font-size:13px;line-height:1.6;color:var(--muted,#64748b);margin:0 0 8px;' +
       'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
+      '.dfb-trace{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between;margin:8px 0 6px;font-size:12px;}' +
+      '.dfb-source{color:var(--muted,#475569);font-weight:500;}' +
+      '.dfb-link{color:var(--primary,#2563eb);text-decoration:none;font-weight:600;}' +
+      '.dfb-link:hover{text-decoration:underline;}' +
+      '.dfb-missing{color:#d93025 !important;background:#fff1f0;border:1px solid #ffccc7;border-radius:6px;padding:1px 7px;font-weight:600;}' +
       '.dfb-meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted,#94a3b8);}' +
       '.dfb-tag{padding:2px 8px;border-radius:6px;background:var(--tag-bg,#eff6ff);color:var(--primary,#2563eb);font-weight:500;}' +
+      '.dfb-date{color:var(--muted,#94a3b8);}' +
       '.dfb-empty{padding:18px;text-align:center;color:var(--muted,#94a3b8);font-size:13px;}' +
+      '.dfb-trace-bar{position:relative;z-index:50;max-width:1100px;margin:10px auto;padding:10px 16px;border-radius:10px;font-size:13px;line-height:1.6;border:1px solid;}' +
+      '.dfb-trace-bar.ok{background:#f0fff4;border-color:#b7eb8f;color:#135200;}' +
+      '.dfb-trace-bar.warn{background:#fffbe6;border-color:#ffe58f;color:#874d00;}' +
+      '.dfb-trace-bar code{background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px;font-size:12px;}' +
       '.dfb-diag{position:relative;z-index:99999;padding:12px 14px;margin:10px;font:12px/1.7 monospace;' +
       'white-space:pre-wrap;word-break:break-all;border-radius:8px;border:2px solid;}' +
       '.dfb-diag.red{background:#fff3f3;border-color:#e33;color:#222;}' +
@@ -54,9 +68,9 @@
   function getVal(o, ks) { for (var i = 0; i < ks.length; i++) if (o[ks[i]] != null && o[ks[i]] !== '') return o[ks[i]]; return ''; }
   function T(o)   { return getVal(o, ['title', 'name', 'headline', 't', '标题', '名称']); }
   function S(o)   { return getVal(o, ['summary', 'desc', 'description', 'abstract', 'digest', 'content', 's', '摘要', '简介']); }
-  function U(o)   { return getVal(o, ['url', 'link', 'href', 'source_url', 'sourceUrl']); }
+  function U(o)   { return getVal(o, ['url', 'link', 'href', 'source_url', 'sourceUrl', '原文链接']); }
   function D(o)   { return getVal(o, ['date', 'time', 'publish_time', 'publishTime', 'pubDate', 'published_at', 'publishedAt', 'created_at', '日期', '时间']); }
-  function SRC(o) { return getVal(o, ['source', 'from', 'media', 'site', '来源']); }
+  function SRC(o) { return getVal(o, ['source', 'from', 'media', 'site', 'publisher', '来源', '出处', '媒体']); }
   function C(o)   { return getVal(o, ['category', 'type', 'tag', 'section', 'cat', 'channel', '分类', '标签', '类别']); }
   function hint(o){ return getVal(o, ['category', 'name', 'type', 'label', 'tag', 'section', 'channel', '分类', '名称', '类别']); }
   function norm(s){ return String(s == null ? '' : s).toLowerCase().replace(/[-_\s]/g, ''); }
@@ -93,7 +107,6 @@
   function collect(node, pathKey) {
     if (Array.isArray(node)) {
       if (node.length === 0) return;
-      // 是不是“分类容器对象数组”：每个元素内部含一个“新闻子数组”
       var isContainer = node.every(function (e) {
         if (!e || typeof e !== 'object' || Array.isArray(e)) return false;
         return Object.keys(e).some(function (k) { return Array.isArray(e[k]) && e[k].length && isNewsItem(e[k][0]); });
@@ -102,17 +115,13 @@
         for (var c = 0; c < node.length; c++) collect(node[c], hint(node[c]) || pathKey);
         return;
       }
-      // 普通新闻数组
       var items = [];
       for (var i = 0; i < node.length; i++) if (isNewsItem(node[i])) items.push(node[i]);
       if (items.length) {
         var cid = resolve(null, pathKey);
-        for (var n = 0; n < items.length; n++) {
-          allNews.push({ it: items[n], cid: cid || resolve(C(items[n]), null) });
-        }
+        for (var n = 0; n < items.length; n++) allNews.push({ it: items[n], cid: cid || resolve(C(items[n]), null) });
         return;
       }
-      // 既非容器也非新闻数组，递归元素
       for (var k = 0; k < node.length; k++) collect(node[k], pathKey);
       return;
     }
@@ -122,18 +131,63 @@
     }
   }
 
-  // ---------- 渲染 ----------
+  // ---------- 卡片（强制溯源） ----------
   function card(it) {
     var t = T(it); if (!t) return '';
     var u = U(it), sum = S(it), d = D(it), src = SRC(it), cat = C(it);
+
+    // 标题：有原文链接则可点，无则纯文本
+    var titleHtml = u
+      ? '<a class="dfb-title-link" href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(t) + '</a>'
+      : '<h3 class="dfb-title">' + esc(t) + '</h3>';
+
+    // 溯源行：来源 + 原文链接，强制显示，缺失红字标出
+    var srcHtml = src
+      ? '<span class="dfb-source">📰 来源：' + esc(src) + '</span>'
+      : '<span class="dfb-source dfb-missing" title="该条目未提供数据来源，无法溯源，请在数据中补全 source 字段">📰 来源：未标注 ⚠️</span>';
+    var linkHtml = u
+      ? '<a class="dfb-link" href="' + esc(u) + '" target="_blank" rel="noopener" title="点击查看原始出处，核验真实性">🔗 查看原文 ↗</a>'
+      : '<span class="dfb-link dfb-missing" title="该条目缺少原文链接，无法核验原文，请在数据中补全 url 字段">🔗 原文链接缺失 ⚠️</span>';
+    var trace = '<div class="dfb-trace">' + srcHtml + linkHtml + '</div>';
+
     var meta = '<div class="dfb-meta">' +
       (cat ? '<span class="dfb-tag">' + esc(cat) + '</span>' : '<span></span>') +
-      '<span>' + esc(src ? (src + (d ? ' · ' : '')) : '') + esc(d) + '</span></div>';
-    var inner = '<h3 class="dfb-title">' + esc(t) + '</h3>' + (sum ? '<p class="dfb-summary">' + esc(sum) + '</p>' : '') + meta;
-    return u ? '<a class="dfb-card" href="' + esc(u) + '" target="_blank" rel="noopener">' + inner + '</a>'
-             : '<div class="dfb-card">' + inner + '</div>';
+      '<span class="dfb-date">' + esc(d) + '</span></div>';
+
+    var inner = titleHtml + (sum ? '<p class="dfb-summary">' + esc(sum) + '</p>' : '') + trace + meta;
+    return '<div class="dfb-card">' + inner + '</div>';
   }
 
+  // ---------- 溯源完整性统计 ----------
+  function traceReport() {
+    var ms = 0, mu = 0, n = allNews.length;
+    for (var i = 0; i < n; i++) { if (!SRC(allNews[i].it)) ms++; if (!U(allNews[i].it)) mu++; }
+    return { n: n, ms: ms, mu: mu };
+  }
+  function showTraceBar() {
+    var r = traceReport();
+    var bar = document.getElementById('dfb-trace-bar');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'dfb-trace-bar';
+      var stats = document.getElementById('statsBar');
+      if (stats && stats.parentNode) stats.parentNode.insertBefore(bar, stats.nextSibling);
+      else document.body.insertBefore(bar, document.body.firstChild);
+    }
+    if (r.n === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    var okSrc = r.n - r.ms, okUrl = r.n - r.mu;
+    if (r.ms === 0 && r.mu === 0) {
+      bar.className = 'dfb-trace-bar ok';
+      bar.innerHTML = '✅ 数据溯源完整：全部 <b>' + r.n + '</b> 条均已标注来源与可点击原文链接。';
+    } else {
+      bar.className = 'dfb-trace-bar warn';
+      bar.innerHTML = '⚠️ 数据溯源完整性：来源已标注 <b>' + okSrc + '/' + r.n + '</b>，原文链接 <b>' + okUrl + '/' + r.n + '</b>。' +
+        '缺失项已在对应卡片上以红字标出。为保证真实性与可溯源，请在 <code>data/news-data.json</code> 中为每条新闻补全 ' +
+        '<code>source</code>（来源媒体/机构）与 <code>url</code>（原文链接）字段，<b>切勿留空或伪造</b>。';
+    }
+  }
+
+  // ---------- 渲染 ----------
   function render(kw) {
     kw = (kw || '').toLowerCase();
     var tmp = {}; IDS.forEach(function (id) { tmp[id] = []; });
@@ -152,6 +206,7 @@
     if (stats) stats.textContent = '📊 共 ' + allNews.length + ' 条' + (kw ? ' · 匹配 ' + shown + ' 条' : '');
     var noRes = document.getElementById('noResult');
     if (noRes) noRes.style.display = (kw && shown === 0) ? '' : 'none';
+    showTraceBar();
     return total;
   }
 
@@ -238,18 +293,7 @@
           diag('red',
             '❌ 数据文件里没有可识别的新闻条目。\n\n' +
             '【原始 JSON 文本前 800 字】\n' + rawText.slice(0, 800) + '\n\n' +
-            '【typeof】 ' + typeof json + '\n' +
-            '【顶层结构】 ' + topInfo(json) + '\n\n' +
-            '→ 如果上面显示 [] 或 {}，说明 news-data.json 是空的，需要往里面填新闻数据；\n' +
-            '→ 如果是其它结构，请把这一整段截图发给助手，即可一次对齐。');
-        } else {
-          var nullCount = 0;
-          for (var i = 0; i < allNews.length; i++) if (!allNews[i].cid) nullCount++;
-          if (nullCount === allNews.length) {
-            diag('yellow',
-              '⚠️ 已成功渲染 ' + allNews.length + ' 条，但 JSON 里没有可识别的分类字段，\n' +
-              '因此全部暂时放在“时政要闻”栏。\n如需正确分栏，请把下面片段发给助手：\n\n' + rawText.slice(0, 500));
-          }
+            '【typeof】 ' + typeof json + '\n【顶层结构】 ' + topInfo(json));
         }
       })
       .catch(function (e) { diag('red', '❌ 加载失败: ' + e.message + '\n目标路径: ' + DATA_URL); });
