@@ -1,29 +1,31 @@
 /**
- * Daily Finance Brief —— 精确适配版 main.js
- * 适配容器: politics-news / trade-news / ecommerce-news / stock-news / bond-news / fund-news / knowledge-content
- * 数据路径: data/news-data.json (相对路径, 已验证 200)
+ * Daily Finance Brief —— 万能适配版 main.js
+ * 自动挖掘任意结构的 news-data.json，按分类填入对应格子。
+ * 容器: politics-news / trade-news / ecommerce-news / stock-news / bond-news / fund-news / knowledge-content
+ * 数据: data/news-data.json (相对路径)
  */
 (function () {
   'use strict';
 
   var DATA_URL = 'data/news-data.json';
-  var CONTAINERS = ['politics-news', 'trade-news', 'ecommerce-news', 'stock-news', 'bond-news', 'fund-news', 'knowledge-content'];
+  var IDS = ['politics-news', 'trade-news', 'ecommerce-news', 'stock-news', 'bond-news', 'fund-news', 'knowledge-content'];
 
-  // 分类关键词 -> 容器 id (双向模糊匹配, 大小写不敏感)
-  var CAT_MAP = [
-    ['politics-news',     ['politics', '时政', '政治', '要闻']],
-    ['trade-news',        ['trade', '国际贸易', '贸易', '外贸']],
+  // 分类关键词（同时用于 category 字段 和 JSON 里的键名，大小写/横线/下划线不敏感）
+  var CAT = [
+    ['politics-news',     ['politic', '时政', '政治', '要闻']],
+    ['trade-news',        ['trade', 'trading', '国际贸易', '贸易', '外贸']],
     ['ecommerce-news',    ['ecommerce', 'cross', '跨境', '电商']],
-    ['stock-news',        ['stock', '股', '股市']],
-    ['bond-news',         ['bond', '债', '债券']],
-    ['fund-news',         ['fund', '基金', '理财']],
-    ['knowledge-content', ['knowledge', '知识', '科普']]
+    ['stock-news',        ['stock', '股市', '股票', '证券', 'equity']],
+    ['bond-news',         ['bond', '债', '债券', 'treasury']],
+    ['fund-news',         ['fund', '基金', '理财', 'etf']],
+    ['knowledge-content', ['knowledge', '知识', '科普', '百科']]
   ];
 
-  var allData = [];
+  var allNews = [];   // [{it, cid}]
+  var rawText = '';
   var keyword = '';
 
-  // ---------- 局部样式 (只修饰自己生成的卡片, 绝不污染原页面) ----------
+  // ---------- 样式 ----------
   function injectStyle() {
     if (document.getElementById('dfb-style')) return;
     var s = document.createElement('style');
@@ -39,127 +41,136 @@
       '.dfb-meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted,#94a3b8);}' +
       '.dfb-tag{padding:2px 8px;border-radius:6px;background:var(--tag-bg,#eff6ff);color:var(--primary,#2563eb);font-weight:500;}' +
       '.dfb-empty{padding:18px;text-align:center;color:var(--muted,#94a3b8);font-size:13px;}' +
-      '.dfb-diag{position:relative;z-index:99999;background:#fff3f3;border:2px solid #e33;color:#222;' +
-      'padding:12px;margin:10px;font:12px/1.6 monospace;white-space:pre-wrap;word-break:break-all;border-radius:8px;}';
+      '.dfb-diag{position:relative;z-index:99999;padding:12px 14px;margin:10px;font:12px/1.7 monospace;' +
+      'white-space:pre-wrap;word-break:break-all;border-radius:8px;border:2px solid;}' +
+      '.dfb-diag.red{background:#fff3f3;border-color:#e33;color:#222;}' +
+      '.dfb-diag.yellow{background:#fffbe6;border-color:#d90;color:#222;}';
     document.head.appendChild(s);
   }
 
   // ---------- 工具 ----------
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function getVal(item, keys) {
-    for (var i = 0; i < keys.length; i++) { if (item[keys[i]] != null && item[keys[i]] !== '') return item[keys[i]]; }
-    return '';
-  }
-  function titleOf(it)  { return getVal(it, ['title', 'name', 'headline', 't', '标题']); }
-  function sumOf(it)    { return getVal(it, ['summary', 'desc', 'description', 'abstract', 'digest', 'content', 's', '摘要']); }
-  function urlOf(it)    { return getVal(it, ['url', 'link', 'href', 'source_url', 'sourceUrl']); }
-  function dateOf(it)   { return getVal(it, ['date', 'time', 'publish_time', 'publishTime', 'published_at', 'publishedAt', 'pubDate', 'created_at', '日期', '时间']); }
-  function sourceOf(it) { return getVal(it, ['source', 'from', 'media', 'site', '来源']); }
-  function catOf(it)    { return getVal(it, ['category', 'type', 'tag', 'section', 'cat', 'channel', '分类', '标签']); }
+  function getVal(o, ks) { for (var i = 0; i < ks.length; i++) if (o[ks[i]] != null && o[ks[i]] !== '') return o[ks[i]]; return ''; }
+  function T(o)   { return getVal(o, ['title', 'name', 'headline', 't', '标题', '名称']); }
+  function S(o)   { return getVal(o, ['summary', 'desc', 'description', 'abstract', 'digest', 'content', 's', '摘要', '简介']); }
+  function U(o)   { return getVal(o, ['url', 'link', 'href', 'source_url', 'sourceUrl']); }
+  function D(o)   { return getVal(o, ['date', 'time', 'publish_time', 'publishTime', 'pubDate', 'published_at', 'publishedAt', 'created_at', '日期', '时间']); }
+  function SRC(o) { return getVal(o, ['source', 'from', 'media', 'site', '来源']); }
+  function C(o)   { return getVal(o, ['category', 'type', 'tag', 'section', 'cat', 'channel', '分类', '标签', '类别']); }
+  function hint(o){ return getVal(o, ['category', 'name', 'type', 'label', 'tag', 'section', 'channel', '分类', '名称', '类别']); }
+  function norm(s){ return String(s == null ? '' : s).toLowerCase().replace(/[-_\s]/g, ''); }
 
-  // 把一条新闻归类到正确的容器 id
-  function resolveContainerId(cat) {
-    var c = String(cat || '').trim();
-    if (!c) return null;
-    var direct = c + '-news';                       // 快速路径: category 直接是前缀
-    if (CONTAINERS.indexOf(direct) > -1) return direct;
-    var low = c.toLowerCase();
-    for (var i = 0; i < CAT_MAP.length; i++) {
-      var kws = CAT_MAP[i][1];
-      for (var j = 0; j < kws.length; j++) {
-        var k = kws[j].toLowerCase();
-        if (low.indexOf(k) > -1 || k.indexOf(low) > -1) return CAT_MAP[i][0];
+  function isNewsItem(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+    var ks = Object.keys(o); if (!ks.length) return false;
+    var hit = ['title', 'name', 'headline', 't', '标题', '名称', 'url', 'link', 'href', 'source_url', 'sourceUrl',
+      'summary', 'desc', 'description', 'abstract', 'digest', 'content', '摘要', '简介'];
+    for (var i = 0; i < hit.length; i++) if (o[hit[i]] != null && o[hit[i]] !== '') return true;
+    if (ks.length >= 2) for (var j = 0; j < ks.length; j++) if (typeof o[ks[j]] === 'string' && o[ks[j]].trim()) return true;
+    return false;
+  }
+
+  function resolve(cat, pathKey) {
+    var cands = [cat, pathKey];
+    for (var ci = 0; ci < cands.length; ci++) {
+      var c = String(cands[ci] || '').trim(); if (!c) continue;
+      var direct = norm(c) + '-news';
+      for (var d = 0; d < IDS.length; d++) if (norm(IDS[d]).indexOf(norm(c)) === 0 || norm(IDS[d]) === direct) return IDS[d];
+      var low = norm(c);
+      for (var a = 0; a < CAT.length; a++) {
+        var kw = CAT[a][1];
+        for (var b = 0; b < kw.length; b++) {
+          var k = norm(kw[b]); if (!k) continue;
+          if (low.indexOf(k) > -1 || k.indexOf(low) > -1) return CAT[a][0];
+        }
       }
     }
     return null;
   }
 
-  function cardHTML(it) {
-    var t = titleOf(it); if (!t) return '';
-    var u = urlOf(it), sum = sumOf(it), d = dateOf(it), src = sourceOf(it), cat = catOf(it);
-    var meta = '<div class="dfb-meta">' +
-      (cat ? '<span class="dfb-tag">' + esc(cat) + '</span>' : '<span></span>') +
-      '<span>' + esc(src ? (src + (d ? ' · ' : '')) : '') + esc(d) + '</span></div>';
-    var inner = '<h3 class="dfb-title">' + esc(t) + '</h3>' +
-      (sum ? '<p class="dfb-summary">' + esc(sum) + '</p>' : '') + meta;
-    return u
-      ? '<a class="dfb-card" href="' + esc(u) + '" target="_blank" rel="noopener">' + inner + '</a>'
-      : '<div class="dfb-card">' + inner + '</div>';
-  }
-
-  // ---------- 渲染 ----------
-  function renderAll() {
-    var kw = keyword.toLowerCase();
-    var buckets = {}; CONTAINERS.forEach(function (id) { buckets[id] = []; });
-    var unmatched = 0, shown = 0;
-
-    allData.forEach(function (it) {
-      if (kw) {
-        var hay = (titleOf(it) + ' ' + sumOf(it) + ' ' + catOf(it)).toLowerCase();
-        if (hay.indexOf(kw) < 0) return;
+  // ---------- 万能递归挖掘 ----------
+  function collect(node, pathKey) {
+    if (Array.isArray(node)) {
+      if (node.length === 0) return;
+      // 是不是“分类容器对象数组”：每个元素内部含一个“新闻子数组”
+      var isContainer = node.every(function (e) {
+        if (!e || typeof e !== 'object' || Array.isArray(e)) return false;
+        return Object.keys(e).some(function (k) { return Array.isArray(e[k]) && e[k].length && isNewsItem(e[k][0]); });
+      });
+      if (isContainer) {
+        for (var c = 0; c < node.length; c++) collect(node[c], hint(node[c]) || pathKey);
+        return;
       }
-      var cid = resolveContainerId(catOf(it));
-      if (cid && buckets[cid]) buckets[cid].push(it);
-      else unmatched++;
-      shown++;
-    });
-
-    var totalRendered = 0;
-    CONTAINERS.forEach(function (id) {
-      var el = document.getElementById(id); if (!el) return;
-      var list = buckets[id];
-      if (list && list.length) {
-        el.innerHTML = list.map(cardHTML).join('');
-        totalRendered += list.length;
-      } else {
-        el.innerHTML = '<div class="dfb-empty">' + (kw ? '没有匹配的资讯 🧐' : '暂无相关资讯') + '</div>';
+      // 普通新闻数组
+      var items = [];
+      for (var i = 0; i < node.length; i++) if (isNewsItem(node[i])) items.push(node[i]);
+      if (items.length) {
+        var cid = resolve(null, pathKey);
+        for (var n = 0; n < items.length; n++) {
+          allNews.push({ it: items[n], cid: cid || resolve(C(items[n]), null) });
+        }
+        return;
       }
-    });
-
-    // 统计条 / 无结果提示
-    var stats = document.getElementById('statsBar');
-    if (stats) stats.textContent = '📊 共 ' + allData.length + ' 条' + (kw ? ' · 匹配 ' + shown + ' 条' : '');
-    var noRes = document.getElementById('noResult');
-    if (noRes) noRes.style.display = (kw && shown === 0) ? '' : 'none';
-
-    // 自适应诊断: 数据有, 但一条都没渲染出来 -> 打印 JSON 真实结构给我看
-    if (totalRendered === 0 && allData.length > 0) {
-      var cats = {}; allData.forEach(function (it) { cats[String(catOf(it))] = 1; });
-      diag('⚠️ 数据加载成功(' + allData.length + '条), 但没匹配到任何分类格子。\n' +
-        '请把下面信息截图发给助手:\n\n' +
-        '【JSON 第一条的所有字段名】\n' + Object.keys(allData[0]).join(', ') + '\n\n' +
-        '【category 字段的全部取值】\n' + Object.keys(cats).join(', ') + '\n\n' +
-        '【第一条样本】\n' + JSON.stringify(allData[0], null, 2));
+      // 既非容器也非新闻数组，递归元素
+      for (var k = 0; k < node.length; k++) collect(node[k], pathKey);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      var keys = Object.keys(node);
+      for (var p = 0; p < keys.length; p++) collect(node[keys[p]], keys[p]);
     }
   }
 
-  function diag(msg) {
-    if (document.getElementById('dfb-diag')) return;
-    var b = document.createElement('div'); b.id = 'dfb-diag'; b.className = 'dfb-diag';
+  // ---------- 渲染 ----------
+  function card(it) {
+    var t = T(it); if (!t) return '';
+    var u = U(it), sum = S(it), d = D(it), src = SRC(it), cat = C(it);
+    var meta = '<div class="dfb-meta">' +
+      (cat ? '<span class="dfb-tag">' + esc(cat) + '</span>' : '<span></span>') +
+      '<span>' + esc(src ? (src + (d ? ' · ' : '')) : '') + esc(d) + '</span></div>';
+    var inner = '<h3 class="dfb-title">' + esc(t) + '</h3>' + (sum ? '<p class="dfb-summary">' + esc(sum) + '</p>' : '') + meta;
+    return u ? '<a class="dfb-card" href="' + esc(u) + '" target="_blank" rel="noopener">' + inner + '</a>'
+             : '<div class="dfb-card">' + inner + '</div>';
+  }
+
+  function render(kw) {
+    kw = (kw || '').toLowerCase();
+    var tmp = {}; IDS.forEach(function (id) { tmp[id] = []; });
+    var shown = 0;
+    allNews.forEach(function (e) {
+      if (kw) { var hay = (T(e.it) + ' ' + S(e.it) + ' ' + C(e.it)).toLowerCase(); if (hay.indexOf(kw) < 0) return; }
+      tmp[e.cid || IDS[0]].push(e.it); shown++;
+    });
+    var total = 0;
+    IDS.forEach(function (id) {
+      var el = document.getElementById(id); if (!el) return;
+      var list = tmp[id]; total += list.length;
+      el.innerHTML = list.length ? list.map(card).join('') : '<div class="dfb-empty">暂无相关资讯</div>';
+    });
+    var stats = document.getElementById('statsBar');
+    if (stats) stats.textContent = '📊 共 ' + allNews.length + ' 条' + (kw ? ' · 匹配 ' + shown + ' 条' : '');
+    var noRes = document.getElementById('noResult');
+    if (noRes) noRes.style.display = (kw && shown === 0) ? '' : 'none';
+    return total;
+  }
+
+  // ---------- 诊断 ----------
+  function topInfo(json) {
+    if (Array.isArray(json)) return '数组, 长度 ' + json.length;
+    if (json && typeof json === 'object') return '对象, 顶层键: ' + Object.keys(json).join(', ');
+    return String(json).slice(0, 60);
+  }
+  function diag(level, msg) {
+    var old = document.getElementById('dfb-diag'); if (old) old.parentNode.removeChild(old);
+    var b = document.createElement('div'); b.id = 'dfb-diag'; b.className = 'dfb-diag ' + level;
     b.textContent = msg; document.body.insertBefore(b, document.body.firstChild);
   }
-  function showError(err) {
-    diag('❌ 加载数据失败: ' + err.message + '\n目标路径: ' + DATA_URL +
-      '\n\n请确认仓库里有 data/news-data.json, 并强制刷新(Ctrl+F5)。');
-  }
 
-  // ---------- 数据加载 ----------
-  function load() {
-    fetch(DATA_URL, { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (json) {
-        allData = Array.isArray(json) ? json : (json.news || json.data || json.items || json.list || []);
-        if (!Array.isArray(allData)) allData = [];
-        renderAll();
-      })
-      .catch(showError);
-  }
-
-  // ---------- 交互 (全部防御式: 元素不存在就静默跳过) ----------
+  // ---------- 交互 ----------
   function bindSearch() {
     var el = document.getElementById('searchInput'); if (!el) return;
-    el.addEventListener('input', function () { keyword = el.value.trim(); renderAll(); });
+    el.addEventListener('input', function () { keyword = el.value.trim(); render(keyword); });
   }
   function bindTabs() {
     var nav = document.getElementById('tabNav'); if (!nav) return;
@@ -168,14 +179,17 @@
       b.addEventListener('click', function (e) {
         var txt = (b.textContent || '').toLowerCase();
         if (/总览|全部|首页|all|home/.test(txt)) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-        var target = null;
-        for (var i = 0; i < CAT_MAP.length; i++) {
-          var kws = CAT_MAP[i][1];
-          for (var j = 0; j < kws.length; j++) if (txt.indexOf(kws[j].toLowerCase()) > -1) { target = CAT_MAP[i][0].replace('-news', '').replace('-content', ''); break; }
-          if (target) break;
+        for (var i = 0; i < CAT.length; i++) {
+          var kws = CAT[i][1];
+          for (var j = 0; j < kws.length; j++) {
+            if (txt.indexOf(kws[j].toLowerCase()) > -1) {
+              var anchorId = CAT[i][0].replace('-news', '').replace('-content', '');
+              var anchor = document.getElementById(anchorId);
+              if (anchor) { e.preventDefault(); anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+              return;
+            }
+          }
         }
-        var anchor = target ? document.getElementById(target) : null;
-        if (anchor) { e.preventDefault(); anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       });
     });
   }
@@ -185,17 +199,18 @@
     function isDark() { return CLS.some(function (c) { return document.documentElement.classList.contains(c) || document.body.classList.contains(c); }); }
     function setDark(on) { CLS.forEach(function (c) { document.documentElement.classList.toggle(c, on); document.body.classList.toggle(c, on); }); try { localStorage.setItem('dfb-theme', on ? 'dark' : 'light'); } catch (e) {} }
     var saved = null; try { saved = localStorage.getItem('dfb-theme'); } catch (e) {}
-    setDark(saved ? saved === 'dark' : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));
+    setDark(saved ? saved === 'dark' : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));
     btn.addEventListener('click', function () { setDark(!isDark()); });
   }
   function bindBackTop() {
     var el = document.getElementById('backTop'); if (!el) return;
+    el.style.display = 'none';
     el.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
     window.addEventListener('scroll', function () { el.style.display = window.scrollY > 300 ? '' : 'none'; });
   }
   function bindArchive() {
     var btn = document.getElementById('archiveBtn'), modal = document.getElementById('archiveModal'),
-        close = document.getElementById('archiveClose'), list = document.getElementById('archiveList');
+      close = document.getElementById('archiveClose'), list = document.getElementById('archiveList');
     if (list && !list.children.length) list.innerHTML = '<div class="dfb-empty">暂无往期归档数据</div>';
     function show(on) { if (!modal) return; modal.style.display = on ? 'flex' : 'none'; modal.classList.toggle('show', on); modal.classList.toggle('active', on); }
     if (btn) btn.addEventListener('click', function () { show(true); });
@@ -206,9 +221,40 @@
   // ---------- 启动 ----------
   function init() {
     injectStyle();
+    var leftover = document.getElementById('dfb-diag'); if (leftover) leftover.parentNode.removeChild(leftover);
     bindTheme(); bindBackTop(); bindArchive(); bindTabs(); bindSearch();
-    load();
+
+    fetch(DATA_URL, { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (txt) {
+        rawText = txt;
+        var json;
+        try { json = JSON.parse(txt); } catch (e) { throw new Error('JSON 解析失败: ' + e.message); }
+        allNews = [];
+        collect(json, '');
+        render('');
+
+        if (allNews.length === 0) {
+          diag('red',
+            '❌ 数据文件里没有可识别的新闻条目。\n\n' +
+            '【原始 JSON 文本前 800 字】\n' + rawText.slice(0, 800) + '\n\n' +
+            '【typeof】 ' + typeof json + '\n' +
+            '【顶层结构】 ' + topInfo(json) + '\n\n' +
+            '→ 如果上面显示 [] 或 {}，说明 news-data.json 是空的，需要往里面填新闻数据；\n' +
+            '→ 如果是其它结构，请把这一整段截图发给助手，即可一次对齐。');
+        } else {
+          var nullCount = 0;
+          for (var i = 0; i < allNews.length; i++) if (!allNews[i].cid) nullCount++;
+          if (nullCount === allNews.length) {
+            diag('yellow',
+              '⚠️ 已成功渲染 ' + allNews.length + ' 条，但 JSON 里没有可识别的分类字段，\n' +
+              '因此全部暂时放在“时政要闻”栏。\n如需正确分栏，请把下面片段发给助手：\n\n' + rawText.slice(0, 500));
+          }
+        }
+      })
+      .catch(function (e) { diag('red', '❌ 加载失败: ' + e.message + '\n目标路径: ' + DATA_URL); });
   }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
