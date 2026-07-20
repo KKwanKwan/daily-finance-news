@@ -1,187 +1,201 @@
 /**
- * Daily Finance Brief - Main Logic v2
- * 严格匹配 style.css 中的类名与 ID
+ * Daily Finance Brief - Main Logic
+ * 包含：渲染卡片、全卡片点击跳转、搜索、Tab切换、暗色模式
  */
 
+// --- 配置项 ---
 const CONFIG = {
-    dataUrl: 'data/news-data.json',
+    dataUrl: 'data/news-data.json', // 确保你的数据文件路径正确
     categories: [
         { id: 'all', name: '总览' },
         { id: 'politics', name: '时政要闻' },
         { id: 'trade', name: '国际贸易' },
-        { id: 'ecommerce', name: '跨境电商' },
-        { id: 'stock', name: '股市动态' },
-        { id: 'bond', name: '债券市场' },
-        { id: 'fund', name: '基金理财' }
+        { id: 'cross_border', name: '跨境电商' },
+        { id: 'stocks', name: '股市动态' },
+        { id: 'bonds', name: '债券市场' },
+        { id: 'funds', name: '基金理财' }
     ]
 };
 
+// --- 全局状态 ---
 let allNewsData = [];
 let currentCategory = 'all';
 let searchQuery = '';
 
+// --- 初始化 ---
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
     initTabs();
     initSearch();
     initDarkMode();
-    initBackToTop();
 });
 
+// 1. 获取数据
 async function fetchData() {
-    const container = document.getElementById('news-container');
-    container.innerHTML = '<div class="loading-spinner">加载中</div>';
-    
     try {
-        const response = await fetch(CONFIG.dataUrl + '?t=' + Date.now());
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const raw = await response.json();
+        const response = await fetch(CONFIG.dataUrl);
+        if (!response.ok) throw new Error('网络请求失败');
+        allNewsData = await response.json();
         
-        // 将嵌套结构扁平化为统一数组，兼容现有 JSON 格式
-        allNewsData = [];
-        CONFIG.categories.forEach(cat => {
-            if (cat.id === 'all') return;
-            const items = raw[cat.id] || [];
-            items.forEach(item => {
-                allNewsData.push({
-                    ...item,
-                    category: cat.id,
-                    url: item.source_url || item.url || '#',
-                    source: item.source_name || '未知来源',
-                    tags: item.tags || []
-                });
-            });
-        });
-        
-        // 按日期降序排列
-        allNewsData.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        
-        renderStats();
-        filterAndRender();
+        // 初始化完成后渲染
+        renderStats(allNewsData);
+        renderNews(allNewsData);
     } catch (error) {
-        console.error('加载失败:', error);
-        container.innerHTML = `<div class="empty-state">数据加载失败<br><small>${error.message}</small><br>请检查 data/news-data.json 是否存在</div>`;
+        console.error('加载数据出错:', error);
+        document.getElementById('news-container').innerHTML = 
+            '<p style="text-align:center; color:#666;">数据加载失败，请稍后刷新重试。</p>';
     }
 }
 
-function renderStats() {
-    const sources = new Set(allNewsData.map(n => n.source)).size;
-    const el = (id, val) => { const e = document.getElementById(id); if(e) e.textContent = val; };
-    el('stat-count', allNewsData.length);
-    el('stat-source', sources);
-    el('stat-sections', CONFIG.categories.length - 1);
+// 2. 渲染统计栏
+function renderStats(data) {
+    const sources = new Set(data.map(item => item.source)).size;
+    document.getElementById('stat-count').textContent = data.length;
+    document.getElementById('stat-source').textContent = sources;
+    // 其他统计项可根据需要扩展
 }
 
-function filterAndRender() {
-    let filtered = allNewsData;
-    if (currentCategory !== 'all') {
-        filtered = filtered.filter(n => n.category === currentCategory);
-    }
-    if (searchQuery) {
-        filtered = filtered.filter(n =>
-            (n.title || '').toLowerCase().includes(searchQuery) ||
-            (n.summary || '').toLowerCase().includes(searchQuery) ||
-            n.tags.some(t => t.toLowerCase().includes(searchQuery))
-        );
-    }
-    renderNews(filtered);
-}
-
+// 3. 渲染新闻列表
 function renderNews(data) {
     const container = document.getElementById('news-container');
     container.innerHTML = '';
-    
-    if (!data.length) {
-        container.innerHTML = '<div class="empty-state">暂无匹配的新闻</div>';
+
+    if (data.length === 0) {
+        container.innerHTML = '<div class="empty-state">暂无相关新闻</div>';
         return;
     }
-    
-    data.forEach((item, index) => {
-        const card = document.createElement('article');
-        card.className = 'news-card fade-in';
-        card.style.animationDelay = `${Math.min(index * 0.05, 0.5)}s`;
-        
-        // 全卡片点击跳转
-        card.onclick = (e) => {
-            if (e.target.closest('a')) return; // 不拦截链接自身点击
-            window.open(item.url, '_blank');
-        };
-        
-        const tagsHtml = item.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('');
-        const badgeColor = strColor(item.source);
-        
-        card.innerHTML = `
-            <div class="card-header">
-                <h3 class="card-title">${esc(item.title)}</h3>
-            </div>
-            <p class="card-summary">${esc(item.summary || '暂无摘要')}</p>
-            ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ''}
-            <div class="card-footer">
-                <div class="source-info">
-                    <span class="source-badge" style="background:${badgeColor}">${esc(item.source.charAt(0))}</span>
-                    <span class="source-name">${esc(item.source)}</span>
-                    <span class="publish-date">${esc(item.date || '')}</span>
-                </div>
-                <a href="${esc(item.url)}" target="_blank" rel="noopener" class="read-more" onclick="event.stopPropagation()">查看原文 ↗</a>
-            </div>
-        `;
+
+    data.forEach(item => {
+        const card = createCardElement(item);
         container.appendChild(card);
     });
 }
 
-function initTabs() {
-    const container = document.getElementById('tab-container');
-    if (!container) return;
-    container.innerHTML = CONFIG.categories.map(c =>
-        `<button class="tab-btn ${c.id === 'all' ? 'active' : ''}" data-id="${c.id}">${c.name}</button>`
-    ).join('');
+// 4. 创建卡片 DOM (核心修改：整卡可点)
+function createCardElement(item) {
+    const article = document.createElement('article');
+    article.className = 'news-card fade-in';
     
-    container.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            container.querySelector('.active')?.classList.remove('active');
-            btn.classList.add('active');
-            currentCategory = btn.dataset.id;
+    // 关键逻辑：点击卡片任意位置跳转
+    // 除非点击的是特定的交互按钮（如果有）
+    article.onclick = (e) => {
+        // 如果点击的是链接本身，不重复触发
+        if (e.target.tagName === 'A') return;
+        window.open(item.url, '_blank');
+    };
+
+    // 标签处理
+    const tagsHtml = (item.tags || []).map(tag => `<span class="tag">#${tag}</span>`).join('');
+
+    article.innerHTML = `
+        <div class="card-header">
+            <h3 class="card-title">${item.title}</h3>
+            ${item.is_hot ? '<span class="badge-hot">热点</span>' : ''}
+        </div>
+        <p class="card-summary">${item.summary || '暂无摘要...'}</p>
+        <div class="card-tags">${tagsHtml}</div>
+        <div class="card-footer">
+            <div class="source-info">
+                <span class="source-badge" style="background:${getSourceColor(item.source)}">
+                    ${getSourceIcon(item.source)}
+                </span>
+                <span class="source-name">${item.source}</span>
+                <span class="publish-date">${item.date}</span>
+            </div>
+            <a href="${item.url}" target="_blank" class="read-more" onclick="event.stopPropagation()">
+                查看原文 ↗
+            </a>
+        </div>
+    `;
+    
+    return article;
+}
+
+// 5. Tab 切换逻辑
+function initTabs() {
+    const tabContainer = document.getElementById('tab-container');
+    // 清空并重新生成 Tab
+    tabContainer.innerHTML = CONFIG.categories.map(cat => `
+        <button class="tab-btn ${cat.id === 'all' ? 'active' : ''}" 
+                data-id="${cat.id}">
+            ${cat.name}
+        </button>
+    `).join('');
+
+    // 绑定点击事件
+    tabContainer.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // UI 更新
+            document.querySelector('.tab-btn.active').classList.remove('active');
+            e.target.classList.add('active');
+            
+            // 数据过滤
+            currentCategory = e.target.dataset.id;
             filterAndRender();
         });
     });
 }
 
+// 6. 搜索逻辑
 function initSearch() {
-    const input = document.getElementById('search-input');
-    if (!input) return;
-    let timer;
-    input.addEventListener('input', (e) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-            searchQuery = e.target.value.trim().toLowerCase();
-            filterAndRender();
-        }, 200); // 防抖，避免每次按键都重渲染
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value.toLowerCase();
+        filterAndRender();
     });
 }
 
-function initDarkMode() {
-    const btn = document.getElementById('theme-toggle');
-    if (!btn) return;
-    const saved = localStorage.getItem('dfb-theme');
-    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && prefer)) {
-        document.body.classList.add('dark-mode');
-        btn.textContent = '☀️';
+// 7. 统一过滤与渲染函数
+function filterAndRender() {
+    let filtered = allNewsData;
+
+    // 分类过滤
+    if (currentCategory !== 'all') {
+        filtered = filtered.filter(item => item.category === currentCategory);
     }
-    btn.addEventListener('click', () => {
-        const isDark = document.body.classList.toggle('dark-mode');
-        btn.textContent = isDark ? '☀️' : '🌙';
-        localStorage.setItem('dfb-theme', isDark ? 'dark' : 'light');
+
+    // 搜索过滤
+    if (searchQuery) {
+        filtered = filtered.filter(item => 
+            item.title.toLowerCase().includes(searchQuery) || 
+            (item.summary && item.summary.toLowerCase().includes(searchQuery))
+        );
+    }
+
+    renderNews(filtered);
+}
+
+// 8. 暗色模式逻辑
+function initDarkMode() {
+    const toggleBtn = document.getElementById('theme-toggle');
+    const savedTheme = localStorage.getItem('theme');
+    
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+        toggleBtn.textContent = '☀️';
+    }
+
+    toggleBtn.addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        const isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        toggleBtn.textContent = isDark ? '☀️' : '🌙';
     });
 }
 
-function initBackToTop() {
-    const btn = document.getElementById('back-to-top');
-    if (!btn) return;
-    window.addEventListener('scroll', () => btn.classList.toggle('show', window.scrollY > 400), { passive: true });
-    btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+// --- 辅助工具函数 ---
+
+function getSourceColor(source) {
+    // 简单的哈希颜色生成，保证同一来源颜色固定
+    let hash = 0;
+    for (let i = 0; i < source.length; i++) {
+        hash = source.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+    return '#' + "00000".substring(0, 6 - c.length) + c;
 }
 
-// 工具函数
-function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
-function strColor(s) { let h = 0; for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h); return `hsl(${Math.abs(h) % 360}, 55%, 48%)`; }
+function getSourceIcon(source) {
+    // 取首字作为图标
+    return source.charAt(0);
+}
