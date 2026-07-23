@@ -1,0 +1,29 @@
+name: daily-fetch
+on:
+  schedule:
+    - cron: '0 0 * * *'        # UTC 00:00 = 北京 08:00
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python3 scripts/fetch_news.py
+      - name: Commit & push if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data/news-data.json data/knowledge.json; then
+            echo "无变化，跳过提交"
+          else
+            git add data/news-data.json data/knowledge.json
+            git commit -m "chore: 自动更新财经日报 $(date -u +%Y-%m-%d)"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            echo "已推送，Pages 将于 1-2 分钟内自动重建"
+          fi
