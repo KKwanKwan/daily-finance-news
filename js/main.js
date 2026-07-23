@@ -454,7 +454,6 @@
     if (close) close.addEventListener('click', function () { show(false); });
     if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) show(false); });
   }
-  }
 
   // ---------- 启动 ----------
   function init() {
