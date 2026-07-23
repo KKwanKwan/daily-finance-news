@@ -244,7 +244,8 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(OUT, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-    log('✅ 已写出 %s (嵌套结构, 与现有 json 同构)' % OUT)    save_history(out, today)
+    log('✅ 已写出 %s (嵌套结构, 与现有 json 同构)' % OUT)    
+    save_history(out, today)
     return total_news
 
 if __name__ == '__main__':
