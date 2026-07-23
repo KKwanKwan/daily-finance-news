@@ -112,7 +112,7 @@
   function S(o)   { return getVal(o, ['summary', 'desc', 'description', 'abstract', 'digest', 'content', 's', '摘要', '简介']); }
   function U(o)   { return getVal(o, ['url', 'link', 'href', 'source_url', 'sourceUrl', '原文链接']); }
   function D(o)   { return getVal(o, ['date', 'time', 'publish_time', 'publishTime', 'pubDate', 'published_at', 'publishedAt', 'created_at', '日期', '时间']); }
-  function SRC(o) { return getVal(o, ['source', 'from', 'media', 'site', 'publisher', '来源', '出处', '媒体']); }
+  function SRC(o) { return getVal(o, ['source', 'source_name', 'from', 'media', 'site', 'publisher', '来源', '出处', '媒体']); }
   function C(o)   { return getVal(o, ['category', 'type', 'tag', 'section', 'cat', 'channel', '分类', '标签', '类别']); }
   function hint(o){ return getVal(o, ['category', 'name', 'type', 'label', 'tag', 'section', 'channel', '分类', '名称', '类别']); }
   function norm(s){ return String(s == null ? '' : s).toLowerCase().replace(/[-_\s]/g, ''); }
