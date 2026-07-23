@@ -1,0 +1,48 @@
+name: daily-fetch
+
+# 北京 08:00 = UTC 00:00。cron 不保证秒级，通常延迟几分钟。
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch: {}          # 手动触发，方便随时验收
+
+permissions:
+  contents: write                # 允许把更新后的 json push 回仓库
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run fetcher
+        run: python3 scripts/fetch_news.py
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data/news-data.json data/knowledge.json; then
+            echo "无变化，跳过提交"
+          else
+            git add data/news-data.json data/knowledge.json
+            git commit -m "chore: 自动更新财经日报 $(date -u +%Y-%m-%d)"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            echo "已提交并推送，Pages 将于 1-2 分钟内自动重建"
+          fi
+
+      # ===== 可选：抓完主动推送通知(不配 secret 则自动跳过，不会报错) =====
+      # 支持 Server酱 / PushPlus / 企业微信机器人 任选其一，把 token 存进仓库 Secrets。
+      # - name: Notify (optional)
+      #   if: ${{ secrets.PUSH_URL != '' }}
+      #   run: curl -s -X POST "${{ secrets.PUSH_URL }}" -H 'Content-Type: application/json' \
+      #        -d '{"msgtype":"text","text":{"content":"财经日报已更新 @${{ github.run_id }}"}}'
