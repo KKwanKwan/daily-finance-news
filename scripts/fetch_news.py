@@ -181,7 +181,30 @@ def inherit_knowledge():
 def conv(it):   # 去掉内部分桶标记 _key, 输出与现有 json 同构的字段
     return {'title': it['title'], 'summary': it['summary'], 'source_name': it['source_name'],
             'source_url': it['source_url'], 'date': it['date'], 'tags': it.get('tags', [])}
-
+def save_history(out, today):
+    """每日快照 + 日期索引, 供前端'往期'翻阅。整体 try 包裹, 失败绝不影响主数据。"""
+    try:
+        hdir = os.path.join(DATA_DIR, 'history')
+        os.makedirs(hdir, exist_ok=True)
+        dstr = today.isoformat()
+        with open(os.path.join(hdir, dstr + '.json'), 'w', encoding='utf-8') as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+        idx_path = os.path.join(hdir, 'index.json')
+        idx = []
+        if os.path.exists(idx_path):
+            try:
+                with open(idx_path, 'r', encoding='utf-8') as f: idx = json.load(f)
+                if not isinstance(idx, list): idx = []
+            except Exception: idx = []
+        if dstr not in idx: idx.insert(0, dstr)
+        idx = [x for x in idx if re.match(r'^\d{4}-\d{2}-\d{2}$', str(x))]  # 只留合法日期, 防脏数据
+        idx.sort(reverse=True)
+        with open(idx_path, 'w', encoding='utf-8') as f:
+            json.dump(idx, f, ensure_ascii=False)
+        log('[history] 已存快照 %s.json, 索引共 %d 天' % (dstr, len(idx)))
+    except Exception as e:
+        log('[history] 写历史快照失败(不影响主数据): %s' % e)
+                
 def main():
     log('==== 财经日报抓取开始 (北京时间 %s) ====' % datetime.now(BJ).strftime('%Y-%m-%d %H:%M:%S'))
     today = datetime.now(BJ).date()
@@ -221,7 +244,7 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(OUT, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-    log('✅ 已写出 %s (嵌套结构, 与现有 json 同构)' % OUT)
+    log('✅ 已写出 %s (嵌套结构, 与现有 json 同构)' % OUT)    save_history(out, today)
     return total_news
 
 if __name__ == '__main__':
