@@ -18,10 +18,10 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- data/news-data.json data/knowledge.json; then
+          if git diff --quiet -- data/news-data.json data/knowledge.json data/history/; then
             echo "无变化，跳过提交"
           else
-            git add data/news-data.json data/knowledge.json
+            git add data/news-data.json data/knowledge.json data/history/
             git commit -m "chore: 自动更新财经日报 $(date -u +%Y-%m-%d)"
             git pull --rebase origin "${GITHUB_REF_NAME}" || true
             git push origin "HEAD:${GITHUB_REF_NAME}"
