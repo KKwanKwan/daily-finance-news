@@ -362,14 +362,98 @@
     el.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
     window.addEventListener('scroll', function () { el.style.display = window.scrollY > 300 ? '' : 'none'; });
   }
-  function bindArchive() {
+    function bindArchive() {
     var btn = document.getElementById('archiveBtn'), modal = document.getElementById('archiveModal'),
       close = document.getElementById('archiveClose'), list = document.getElementById('archiveList');
-    if (list && !list.children.length) list.innerHTML = '<div class="dfb-empty">暂无往期归档数据</div>';
-    function show(on) { if (!modal) return; modal.style.display = on ? 'flex' : 'none'; modal.classList.toggle('show', on); modal.classList.toggle('active', on); }
+    if (!list) return;
+    // 弹窗列表区可滚动, 历史卡片多时不撑破弹窗
+    list.style.maxHeight = '62vh'; list.style.overflowY = 'auto';
+
+    // —— 往期归档: 打开即加载历史索引; 失败/空 → 诚实"暂无", spinner 必消失 ——
+    var archiveIndex = null;     // 日期清单缓存(null=尚未加载)
+    var archiveCache = {};       // 已渲染的某日 HTML 缓存
+    var HKEYS = [                // 历史快照键名 → 渲染用分类 id(与主页视觉完全一致)
+      ['politics', 'politics-news'], ['trade', 'trade-news'], ['ecommerce', 'ecommerce-news'],
+      ['stock', 'stock-news'], ['bond', 'bond-news'], ['fund', 'fund-news'], ['knowledge', 'knowledge-content']
+    ];
+    // 追加往期专用样式(注入已存在的 #dfb-style, 不动 injectStyle 主体)
+    var st = document.getElementById('dfb-style');
+    if (st && st.textContent.indexOf('dfb-archive-date') < 0) {
+      st.textContent +=
+        '.dfb-archive-dates{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;}' +
+        '.dfb-archive-date{cursor:pointer;border:1px solid var(--border,#e2e8f0);background:var(--card-bg,#fff);' +
+        'color:var(--text,#334155);border-radius:8px;padding:6px 12px;font:600 13px/1 inherit;transition:all .15s;}' +
+        '.dfb-archive-date:hover{border-color:var(--primary,#2563eb);color:var(--primary,#2563eb);transform:translateY(-1px);}' +
+        '.dfb-archive-date.active{background:var(--primary,#2563eb);color:#fff;border-color:var(--primary,#2563eb);}' +
+        '.dfb-archive-h{font:700 13px/1.4 inherit;color:var(--muted,#64748b);margin:14px 0 8px;' +
+        'text-transform:uppercase;letter-spacing:.04em;border-left:3px solid var(--primary,#2563eb);padding-left:8px;}' +
+        '.dfb-archive-detail{min-height:20px;}';
+    }
+    function setMsg(html) { list.innerHTML = html; }
+    // 复用主页的 card()(纯函数, 不碰全局 allNews), 让历史卡片视觉与主页一字不差
+    function renderHistory(json) {
+      var html = '';
+      if (json && typeof json === 'object' && !Array.isArray(json)) {
+        for (var i = 0; i < HKEYS.length; i++) {
+          var arr = json[HKEYS[i][0]];
+          if (Array.isArray(arr) && arr.length) {
+            html += '<div class="dfb-archive-h">' + esc(HKEYS[i][0]) + '</div>';
+            for (var j = 0; j < arr.length; j++) html += card(arr[j], HKEYS[i][1]);
+          }
+        }
+      }
+      if (!html && Array.isArray(json)) { for (var k = 0; k < json.length; k++) html += card(json[k], null); }
+      return html;
+    }
+    function loadDay(d, btnEl) {
+      var detail = list.querySelector('.dfb-archive-detail'); if (!detail) return;
+      var ds = list.querySelectorAll('.dfb-archive-date');
+      for (var i = 0; i < ds.length; i++) ds[i].classList.remove('active');
+      if (btnEl) btnEl.classList.add('active');
+      if (archiveCache[d]) { detail.innerHTML = archiveCache[d]; return; }
+      detail.innerHTML = '<div class="dfb-empty">加载 ' + esc(d) + ' …</div>';
+      fetch('data/history/' + encodeURIComponent(d) + '.json', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (json) { var h = renderHistory(json); archiveCache[d] = h; detail.innerHTML = h || '<div class="dfb-empty">该日无内容</div>'; })
+        .catch(function () { detail.innerHTML = '<div class="dfb-empty">该日快照加载失败</div>'; });
+    }
+    function renderIndex(arr) {
+      setMsg('<div class="dfb-archive-dates">' + arr.map(function (d) {
+        return '<button type="button" class="dfb-archive-date" data-d="' + esc(d) + '">' + esc(d) + '</button>';
+      }).join('') + '</div><div class="dfb-archive-detail"><div class="dfb-empty">← 点击上方日期查看当日资讯</div></div>');
+      var bs = list.querySelectorAll('.dfb-archive-date');
+      for (var i = 0; i < bs.length; i++) (function (b) {
+        b.addEventListener('click', function () { loadDay(b.getAttribute('data-d'), b); });
+      })(bs[i]);
+    }
+    function loadIndex() {
+      if (archiveIndex) { renderIndex(archiveIndex); return; }   // 已加载走缓存, 不重复请求
+      setMsg('<div class="dfb-empty">加载中…</div>');
+      fetch('data/history/index.json', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (arr) {
+          if (!Array.isArray(arr) || !arr.length) {
+            archiveIndex = [];
+            setMsg('<div class="dfb-empty">📭 暂无往期归档。<br><span style="font-size:12px;opacity:.75">历史快照自启用之日起逐日积累；启用后跑一次抓取，这里即出现可翻阅的日期。</span></div>');
+            return;
+          }
+          archiveIndex = arr; renderIndex(arr);
+        })
+        .catch(function () {   // index.json 不存在(404)也走这里 → 诚实"暂无", 绝不卡死
+          archiveIndex = [];
+          setMsg('<div class="dfb-empty">📭 暂无往期归档（尚未生成历史快照）。</div>');
+        });
+    }
+    function show(on) {
+      if (!modal) return;
+      modal.style.display = on ? 'flex' : 'none';
+      modal.classList.toggle('show', on); modal.classList.toggle('active', on);
+      if (on) loadIndex();   // 每次打开都确保索引就绪(已加载则命中缓存)
+    }
     if (btn) btn.addEventListener('click', function () { show(true); });
     if (close) close.addEventListener('click', function () { show(false); });
     if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) show(false); });
+  }
   }
 
   // ---------- 启动 ----------
